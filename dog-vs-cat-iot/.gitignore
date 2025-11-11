@@ -1,0 +1,48 @@
+# ==========================
+# PYTHON / BACKEND
+# ==========================
+# Bytecode compilado (basura automática)
+_pycache_/
+*.pyc
+
+# Entornos Virtuales (¡Nunca se suben!)
+venv/
+env/
+.venv/
+
+# Variables de entorno y Secretos (IMPORTANTE)
+.env
+
+# Jupyter Notebooks checkpoints (si usas Colab/Jupyter local)
+.ipynb_checkpoints/
+
+# ==========================
+# FIRMWARE / PLATFORMIO
+# ==========================
+# Archivos de compilación y librerías descargadas
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Archivos temporales de PlatformIO
+.clang_complete
+.gcc-flags.json
+
+# ==========================
+# IDE / EDITORES
+# ==========================
+# Configuración local de VS Code (opcional, pero recomendado ignorar)
+.vscode/
+*.code-workspace
+
+# ==========================
+# DATOS Y MODELOS
+# ==========================
+# Datasets de imágenes (suelen ser muy pesados para GitHub)
+dataset/
+data/
+training_data/
+
+# Si tu modelo .h5 pesa más de 100MB, GitHub lo rechazará.
+# Descomenta la siguiente línea si tu modelo es gigante:
+# *.h5
