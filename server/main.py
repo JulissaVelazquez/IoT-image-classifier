@@ -1,104 +1,116 @@
 import uvicorn
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
-import numpy as np
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import tensorflow as tf
 from PIL import Image
+import numpy as np
 import io
+import sys
+import nest_asyncio
+from pyngrok import ngrok
+import asyncio
 
-# --- 1. Configuración Inicial ---
+# --- CONFIGURACIÓN ---
+# TODO: poner token real
+NGROK_AUTHTOKEN = "PON_TU_TOKEN_AQUI"
+MODEL_PATH = 'model/dog_cat_model.h5'
 
-# Crea la aplicación FastAPI
-app = FastAPI(title="Servidor de Clasificacion (Perros vs Gatos)")
-
-# Carga tu modelo .h5 (¡Esto solo se hace una vez al iniciar!)
-try:
-    model = tf.keras.models.load_model('model/dog_cat_model.h5')
-    print("Modelo cargado exitosamente.")
-except Exception as e:
-    print(f"Error cargando el modelo: {e}")
-    model = None
-
-# Define el tamaño de imagen que tu modelo espera
-# (MobileNetV2 usualmente usa 224x224)
-IMG_WIDTH = 224
 IMG_HEIGHT = 224
+IMG_WIDTH = 224
 
-# --- 2. Función de Pre-procesamiento ---
+# ---  abrir tuneles ngrok ---
+nest_asyncio.apply()
 
-def preprocess_image(image_bytes: bytes) -> np.ndarray:
-    """
-    Toma los bytes de una imagen, la abre, la procesa y la 
-    prepara para el modelo.
-    """
-    # Abre la imagen desde los bytes
+# Autenticación
+if NGROK_AUTHTOKEN and NGROK_AUTHTOKEN != "PON_TU_TOKEN_AQUI":
+    ngrok.set_auth_token(NGROK_AUTHTOKEN)
+
+# Cierra túneles para no tronar la cuota de ngrok
+try:
+    tunnels = ngrok.get_tunnels()
+    for tunnel in tunnels:
+        ngrok.disconnect(tunnel.public_url)
+    print("Túneles anteriores cerrados correctamente.")
+except Exception as e:
+    print(f"Nota al cerrar túneles: {e}")
+
+# Abrir nuevo túnel
+try:
+    # Conecta al puerto 8000
+    public_url = ngrok.connect(8000).public_url
+    print("="*60)
+    print(f" URL PÚBLICA NUEVA: {public_url}")
+    print(f" Swagger UI:        {public_url}/docs")
+    print("="*60)
+except Exception as e:
+    print(f" Error fatal iniciando Ngrok: {e}")
+    sys.exit(1)
+
+
+# ---  CARGAR MODELO ---
+print("Cargando modelo TensorFlow...")
+try:
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("Modelo cargado.")
+except Exception as e:
+    print(f"Error cargando modelo en {MODEL_PATH}: {e}")
+    sys.exit(1)
+
+
+# ---  API FASTAPI ---
+app = FastAPI(title="ESP32 Vision Server (Ngrok Auto)")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def preprocess_image(image_bytes):
     image = Image.open(io.BytesIO(image_bytes))
-    
-    # Asegúrate de que la imagen esté en modo RGB
     if image.mode != "RGB":
         image = image.convert("RGB")
-        
-    # Redimensiona la imagen al tamaño que el modelo espera
     image = image.resize((IMG_WIDTH, IMG_HEIGHT))
-    
-    # Convierte la imagen a un array de numpy
-    image_array = np.array(image)
-    
-    # Normaliza la imagen (escala de 0-255 a 0-1)
-    # (Asegúrate de que esto coincida con cómo entrenaste tu modelo)
-    image_array = image_array / 255.0
-    
-    # Añade una dimensión extra (batch)
-    # El modelo espera (1, 224, 224, 3) en lugar de (224, 224, 3)
-    return np.expand_dims(image_array, axis=0)
+    img_array = np.array(image)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = img_array / 255.0
+    return img_array
 
-
-# --- 3. El Endpoint de la API ---
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    """
-    Endpoint principal. Recibe un archivo de imagen, lo procesa
-    y devuelve una predicción en JSON.
-    """
-    if not model:
-        return JSONResponse(status_code=500, content={"error": "Modelo no está cargado."})
-
-    # Lee los bytes de la imagen enviada por el ESP32
-    image_bytes = await file.read()
-    
     try:
-        # Pre-procesa la imagen
-        processed_image = preprocess_image(image_bytes)
-        
-        # --- 4. Realiza la Predicción ---
-        prediction = model.predict(processed_image)
-        
-        # El resultado de un modelo binario (sigmoid) es un solo número (ej. [[0.98]])
+        contents = await file.read()
+        processed_image = preprocess_image(contents)
+
+        prediction = model.predict(processed_image, verbose=0)
         confidence = float(prediction[0][0])
-        
-        # Interpreta el resultado (asumiendo 0=PERRO, 1=GATO)
+
+        # Umbral (0 = Perro, 1 = Gato aprox)
         if confidence > 0.5:
             label = "GATO"
-            percent_confidence = confidence * 100
+            prob = confidence * 100
         else:
             label = "PERRO"
-            percent_confidence = (1 - confidence) * 100
-            
-        print(f"Prediccion: {label} (Conf: {percent_confidence:.2f}%)")
+            prob = (1 - confidence) * 100
 
-        # --- 5. Devuelve el JSON al ESP32 ---
+        print(f"Recibido. Predicción: {label} ({prob:.1f}%)")
+
         return {
             "prediction": label,
-            "confidence": f"{percent_confidence:.2f}"
+            "confidence": round(prob, 2)
         }
 
     except Exception as e:
-        print(f"Error procesando la imagen: {e}")
-        return JSONResponse(status_code=400, content={"error": "No se pudo procesar la imagen."})
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-# --- 6. Cómo ejecutar el servidor (para desarrollo) ---
+# --- RUN ---
 if __name__ == "__main__":
-    # Inicia el servidor en el host 0.0.0.0 para que sea accesible
-    # desde otros dispositivos en tu red (como el ESP32)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    config = uvicorn.Config(app=app, host="0.0.0.0", port=8000)
+    server = uvicorn.Server(config)
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(server.serve())
