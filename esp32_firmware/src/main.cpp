@@ -189,7 +189,7 @@ void checkMessages()
     if (WiFi.status() != WL_CONNECTED)
         return;
 
-    // Cliente fresco para polling con buffer aumentado
+    // Cliente fresco (no jala) para polling con buffer aumentado
     WiFiClientSecure secureMsg;
     secureMsg.setInsecure();
     secureMsg.setBufferSizes(4096, 1024); // Buffer decente
@@ -242,7 +242,7 @@ void captureAndSend()
 
     // Reconfigurar cliente principal por si acaso
     client.setInsecure();
-    client.setBufferSizes(16384, 4096); // Buffer gigante para imagen
+    // client.setBufferSizes(16384, 4096); esto se va a migrar con otro tunel con otro gestor como pinggy.io
     client.setTimeout(20);
 
     if (client.connect(host, httpsPort))
