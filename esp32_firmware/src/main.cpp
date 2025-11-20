@@ -138,19 +138,13 @@ void waitForAPI()
     {
         playMiniSpectrum(5);
 
-        // --- CONFIGURACION SSL PESADA (LA SOLUCIÓN) ---
-        client.setInsecure(); // Ignora certificado
-
-        // 🔥 AUMENTAMOS EL BUFFER PARA COMERSE EL CERTIFICADO ENTERO 🔥
-        // RX: 16KB (Exagerado para seguridad), TX: 4KB
-        // El ESP32-S3 tiene RAM de sobra, usémosla.
-        client.setBufferSizes(16384, 4096);
-
-        client.setTimeout(15); // Timeout de socket
+        // Configuración SSL estándar (Rollback)
+        client.setInsecure();  // Ignora certificado
+        client.setTimeout(15); // Timeout de socket (en segundos para WiFiClientSecure)
 
         HTTPClient http;
-        http.setConnectTimeout(15000); // 15s conexion
-        http.setTimeout(15000);        // 15s lectura
+        http.setConnectTimeout(15000); // 15s conexion (milisegundos)
+        http.setTimeout(15000);        // 15s lectura (milisegundos)
 
         String url = String("https://") + host + api_handshake;
 
@@ -189,10 +183,9 @@ void checkMessages()
     if (WiFi.status() != WL_CONNECTED)
         return;
 
-    // Cliente fresco (no jala) para polling con buffer aumentado
+    // Cliente fresco para polling
     WiFiClientSecure secureMsg;
     secureMsg.setInsecure();
-    secureMsg.setBufferSizes(4096, 1024); // Buffer decente
 
     HTTPClient http;
     http.setConnectTimeout(5000);
@@ -242,8 +235,7 @@ void captureAndSend()
 
     // Reconfigurar cliente principal por si acaso
     client.setInsecure();
-    // client.setBufferSizes(16384, 4096); esto se va a migrar con otro tunel con otro gestor como pinggy.io
-    client.setTimeout(20);
+    client.setTimeout(20); // 20 segundos timeout
 
     if (client.connect(host, httpsPort))
     {
@@ -329,6 +321,7 @@ void captureAndSend()
         else
         {
             showText("ERROR", "JSON Malo");
+            delay(2000);
         }
     }
     else
