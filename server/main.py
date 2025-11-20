@@ -20,6 +20,7 @@ import base64
 from typing import List
 
 # --- CONFIGURACIÓN ---
+# Token de Ngrok (Tu token real)
 NGROK_AUTHTOKEN = "2y6MCXzCtS9WuC3tFSG6E6uAX25_5GHn1ELAL8QURpGSE7TqZ"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
@@ -27,7 +28,8 @@ MODEL_PATH = 'model/dog_cat_model.h5'
 
 # --- VARIABLES GLOBALES ---
 model = None
-AUTO_MODE = False  # False = Manual, True = Automático (IA manda a OLED)
+AUTO_MODE = False       # False = Manual, True = Automático (IA manda a OLED)
+LAST_OLED_MESSAGE = ""  # Buzón de mensajes para el ESP32
 
 # --- GESTOR DE WEBSOCKETS ---
 
@@ -76,6 +78,7 @@ if NGROK_AUTHTOKEN and NGROK_AUTHTOKEN != "PON_TU_TOKEN_AQUI":
     except Exception:
         logging.exception("Error Auth Token")
 
+# Limpiar túneles previos
 try:
     for tunnel in ngrok.get_tunnels():
         ngrok.disconnect(tunnel.public_url)
@@ -129,18 +132,37 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/settings/mode")
 async def set_mode(data: SystemMode):
-    """Cambia entre modo Manual y Automático desde el Frontend"""
     global AUTO_MODE
     AUTO_MODE = data.auto_mode
     print(f"🔄 MODO CAMBIADO: {'AUTOMÁTICO' if AUTO_MODE else 'MANUAL'}")
     return {"status": "ok", "auto_mode": AUTO_MODE}
 
+# --- [ACTUALIZADO] Endpoint para recibir texto manual ---
+
 
 @app.post("/display/text")
 async def send_to_oled(data: OLEDText):
-    """Endpoint para envío MANUAL de texto"""
-    print(f"📡 Texto Manual OLED: {data.text}")
+    global LAST_OLED_MESSAGE
+    print(f"📡 Texto recibido para OLED: '{data.text}'")
+
+    # Guardamos el mensaje en el buzón para que el ESP32 lo recoja
+    LAST_OLED_MESSAGE = data.text
+
     return {"status": "received", "text_sent": data.text}
+
+# --- [NUEVO] Endpoint para que el ESP32 pregunte por mensajes ---
+
+
+@app.get("/esp32/message")
+async def get_message():
+    global LAST_OLED_MESSAGE
+
+    if LAST_OLED_MESSAGE:
+        msg_to_send = LAST_OLED_MESSAGE
+        LAST_OLED_MESSAGE = ""  # Borramos el mensaje para no repetirlo
+        return {"has_message": True, "text": msg_to_send}
+
+    return {"has_message": False}
 
 
 def preprocess_image(image_bytes):
@@ -175,14 +197,12 @@ async def predict(file: UploadFile = File(...)):
 
         print(f"Predicción: {label} ({prob:.1f}%)")
 
-        # --- LOGICA DEL MODO AUTOMÁTICO ---
-        # Si está en auto, mandamos el texto en la respuesta JSON
+        # Lógica Auto Mode
         oled_response_text = ""
         if AUTO_MODE:
             oled_response_text = f"{label} {int(prob)}%"
-            print(f"🤖 AUTO: Enviando '{oled_response_text}' al ESP32")
 
-        # Enviar al Frontend (WebSocket)
+        # Enviar al Frontend
         base64_image = base64.b64encode(contents).decode('utf-8')
         await manager.broadcast({
             "type": "new_prediction",
@@ -191,11 +211,10 @@ async def predict(file: UploadFile = File(...)):
             "image": f"data:image/jpeg;base64,{base64_image}"
         })
 
-        # Respuesta al ESP32
         return {
             "prediction": label,
             "confidence": round(prob, 2),
-            "oled_text": oled_response_text,  # <--- EL ESP32 DEBE LEER ESTO
+            "oled_text": oled_response_text,
             "auto_mode": AUTO_MODE
         }
 
@@ -207,6 +226,7 @@ async def predict(file: UploadFile = File(...)):
 if __name__ == "__main__":
     def run_uvicorn():
         try:
+            # Importante: workers=1 para que la variable global funcione
             config = uvicorn.Config(
                 app=app, host="0.0.0.0", port=8000, log_level="info")
             server = uvicorn.Server(config)
@@ -221,10 +241,11 @@ if __name__ == "__main__":
     time.sleep(1.5)
 
     try:
+        # Usar tu dominio fijo
         tunnel = ngrok.connect(
             8000, domain="usually-stable-lacewing.ngrok-free.app")
         print("="*60)
-        print(f"  URL: {tunnel.public_url}")
+        print(f"  URL FIJA: {tunnel.public_url}")
         print("="*60)
     except Exception:
         logging.exception("Error Ngrok")
