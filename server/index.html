@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Vision Control</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        .container {
+            background-color: #1e1e1e;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 600px;
+            margin-top: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #00E676;
+            margin: 0 0 1.5rem 0;
+            letter-spacing: 1px;
+        }
+
+        /* Tarjeta predicción "a tiempo real" */
+        .live-card {
+            border: 2px dashed #333;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+        }
+
+        .live-card.active {
+            border-color: #00E676;
+            background: rgba(0, 230, 118, 0.05);
+        }
+
+        #liveImage {
+            max-width: 100%;
+            border-radius: 8px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        #liveResult {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-top: 15px;
+            min-height: 40px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            background: #333;
+            color: #888;
+            margin-bottom: 10px;
+        }
+
+        .connected {
+            background: #00E676;
+            color: #000;
+        }
+
+        /* Modo Selector */
+        .mode-selector {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            background: #252525;
+            padding: 10px;
+            border-radius: 30px;
+        }
+
+        .radio-label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: bold;
+            color: #888;
+            transition: 0.2s;
+        }
+
+        .radio-label:hover {
+            color: #fff;
+        }
+
+        input[type="radio"] {
+            accent-color: #00E676;
+            transform: scale(1.2);
+        }
+
+        input[type="radio"]:checked+span {
+            color: #00E676;
+        }
+
+        /* Inputs */
+        .input-group {
+            display: flex;
+            justify-content: space-between;
+            opacity: 1;
+            transition: 0.3s;
+        }
+
+        .disabled {
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        input[type="text"] {
+            width: 70%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #2d2d2d;
+            color: white;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            background-color: #2d2d2d;
+            color: white;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background-color: #444;
+        }
+
+        .btn-send {
+            background-color: #00E676;
+            color: black;
+            width: 25%;
+            margin-left: 2%;
+        }
+
+        .btn-send:hover {
+            background-color: #00C853;
+        }
+
+        .cat {
+            color: #FF9800;
+            text-shadow: 0 0 10px rgba(255, 152, 0, 0.3);
+        }
+
+        .dog {
+            color: #2196F3;
+            text-shadow: 0 0 10px rgba(33, 150, 243, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1> Centro de Control ESP32-S3 IoT Image Classifier</h1>
+
+        <div style="text-align: center;">
+            <span id="wsStatus" class="status-badge">🔴 Desconectado</span>
+        </div>
+
+        <div class="mode-selector">
+            <label class="radio-label">
+                <input type="radio" name="mode" value="manual" checked onchange="changeMode(false)">
+                <span>Prueba de conexión</span>
+            </label>
+            <label class="radio-label">
+                <input type="radio" name="mode" value="auto" onchange="changeMode(true)">
+                <span>Conexión con la red neuronal artificial</span>
+            </label>
+        </div>
+
+        <div class="live-card" id="liveCard">
+            <div style="color: #888; font-size: 0.9rem; margin-bottom: 10px;">ÚLTIMA CAPTURA</div>
+            <img id="liveImage" src="" alt="Captura ESP32">
+            <div id="liveResult">---</div>
+        </div>
+
+        <hr style="border-color: #333; margin: 20px 0;">
+
+        <div class="input-group" id="manualInputGroup">
+            <input type="text" id="oledInput" placeholder="Enviar mensaje a pantalla OLED...">
+            <button class="btn-send" onclick="sendText()">ENVIAR</button>
+        </div>
+    </div>
+
+    <script>
+        const wsStatus = document.getElementById('wsStatus');
+        const liveImage = document.getElementById('liveImage');
+        const liveResult = document.getElementById('liveResult');
+        const liveCard = document.getElementById('liveCard');
+        const manualGroup = document.getElementById('manualInputGroup');
+
+        // Detectar protocolo WebSocket
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        let socket;
+
+        // Función para cambiar el estado enola puse como state no sé cuándo es state y cuando es mode
+        async function changeMode(isAuto) {
+            if (isAuto) {
+                manualGroup.classList.add('disabled');
+                document.getElementById('oledInput').placeholder = "Modo Automático Activado (IA controla pantalla)";
+            } else {
+                manualGroup.classList.remove('disabled');
+                document.getElementById('oledInput').placeholder = "Escribe algo para la pantalla...";
+            }
+
+            try {
+                await fetch('/settings/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ auto_mode: isAuto })
+                });
+                console.log("Modo cambiado a:", isAuto ? "AUTO" : "MANUAL");
+            } catch (e) {
+                alert("Error cambiando modo");
+            }
+        }
+
+        function connectWebSocket() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function (e) {
+                wsStatus.textContent = "🟢 Conectado en Tiempo Real";
+                wsStatus.classList.add('connected');
+            };
+
+            socket.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'new_prediction') {
+                    liveImage.src = data.image;
+                    liveImage.style.display = 'inline-block';
+
+                    const icon = data.prediction === "GATO" ? "🐱" : "🐶";
+                    const colorClass = data.prediction === "GATO" ? "cat" : "dog";
+                    liveResult.innerHTML = `<span class="${colorClass}">${icon} ${data.prediction} ${data.confidence}%</span>`;
+
+                    liveCard.classList.add('active');
+                    setTimeout(() => liveCard.classList.remove('active'), 1000);
+                }
+            };
+
+            socket.onclose = function (event) {
+                wsStatus.textContent = "🔴 Desconectado (Reintentando...)";
+                wsStatus.classList.remove('connected');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        connectWebSocket();
+
+        async function sendText() {
+            const text = document.getElementById('oledInput').value;
+            if (!text) return;
+            try {
+                await fetch('/display/text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text, duration_s: 5 })
+                });
+                document.getElementById('oledInput').value = '';
+            } catch (e) {
+                alert("Error enviando texto");
+            }
+        }
+    </script>
+</body>
+
+</html>

@@ -21,7 +21,7 @@ from typing import List
 
 # --- CONFIGURACIÓN ---
 # Token de Ngrok (Tu token real)
-NGROK_AUTHTOKEN = "2y6MCXzCtS9WuC3tFSG6E6uAX25_5GHn1ELAL8QURpGSE7TqZ"
+NGROK_AUTHTOKEN = "token"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 MODEL_PATH = 'model/dog_cat_model.h5'
