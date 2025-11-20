@@ -18,7 +18,7 @@ echo.
 echo --- ¡Configuracion completada! ---
 echo.
 echo Para activar el entorno, corre:
-echo .\venv\Scripts\activate
+echo .\server\venv\Scripts\activate
 echo.
 echo Despues, para iniciar el servidor, el modelo y el tunel de NGROK, corre:
 echo python main.py
