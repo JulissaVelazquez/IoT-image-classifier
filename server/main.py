@@ -20,16 +20,18 @@ import base64
 from typing import List
 
 # --- CONFIGURACIÓN ---
-# Token de Ngrok (Tu token real)
-NGROK_AUTHTOKEN = "token"
+# Token de Ngrok
+NGROK_AUTHTOKEN = "2y6MCXzCtS9WuC3tFSG6E6uAX25_5GHn1ELAL8QURpGSE7TqZ"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 MODEL_PATH = 'model/dog_cat_model.h5'
 
 # --- VARIABLES GLOBALES ---
 model = None
-AUTO_MODE = False       # False = Manual, True = Automático (IA manda a OLED)
+# False = Manual, True = Automático (IA manda a OLED), automático para pruebas
+AUTO_MODE = False
 LAST_OLED_MESSAGE = ""  # Buzón de mensajes para el ESP32
+ESP32_CONNECTED = False  # Estado del handshake
 
 # --- GESTOR DE WEBSOCKETS ---
 
@@ -123,6 +125,11 @@ async def read_root():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+    # Enviar estado actual del ESP32 al conectar
+    await websocket.send_json({
+        "type": "handshake_event",
+        "status": ESP32_CONNECTED
+    })
     try:
         while True:
             await websocket.receive_text()
@@ -150,7 +157,26 @@ async def send_to_oled(data: OLEDText):
 
     return {"status": "received", "text_sent": data.text}
 
-# --- [NUEVO] Endpoint para que el ESP32 pregunte por mensajes ---
+# --- [NUEVO] Handshake del ESP32 ---
+
+
+@app.get("/handshake")
+async def handshake():
+    global ESP32_CONNECTED
+    ESP32_CONNECTED = True
+    print("🤝 HANDSHAKE: ¡El ESP32 se ha reportado listo!")
+
+    # Avisar al Frontend que el ESP32 llegó
+    await manager.broadcast({
+        "type": "handshake_event",
+        "status": True
+    })
+
+    return {
+        "status": "connected",
+        "message": "Bienvenido ESP32",
+        "time": datetime.datetime.now().strftime("%H:%M:%S")
+    }
 
 
 @app.get("/esp32/message")

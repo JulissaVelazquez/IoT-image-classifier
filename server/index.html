@@ -63,6 +63,13 @@
             min-height: 40px;
         }
 
+        .status-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
         .status-badge {
             display: inline-block;
             padding: 5px 10px;
@@ -70,7 +77,6 @@
             font-size: 0.8rem;
             background: #333;
             color: #888;
-            margin-bottom: 10px;
         }
 
         .connected {
@@ -177,8 +183,9 @@
     <div class="container">
         <h1> Centro de Control ESP32-S3 IoT Image Classifier</h1>
 
-        <div style="text-align: center;">
-            <span id="wsStatus" class="status-badge">🔴 Desconectado</span>
+        <div class="status-group">
+            <span id="wsStatus" class="status-badge">🔴 GUI Desconectada</span>
+            <span id="espStatus" class="status-badge">🤖 ESP32: Esperando...</span>
         </div>
 
         <div class="mode-selector">
@@ -208,6 +215,7 @@
 
     <script>
         const wsStatus = document.getElementById('wsStatus');
+        const espStatus = document.getElementById('espStatus');
         const liveImage = document.getElementById('liveImage');
         const liveResult = document.getElementById('liveResult');
         const liveCard = document.getElementById('liveCard');
@@ -244,12 +252,23 @@
             socket = new WebSocket(wsUrl);
 
             socket.onopen = function (e) {
-                wsStatus.textContent = "🟢 Conectado en Tiempo Real";
+                wsStatus.textContent = "🟢 GUI Conectada";
                 wsStatus.classList.add('connected');
             };
 
             socket.onmessage = function (event) {
                 const data = JSON.parse(event.data);
+
+                // Manejar evento de Handshake del ESP32
+                if (data.type === 'handshake_event') {
+                    if (data.status) {
+                        espStatus.textContent = "🤖 ESP32: 🟢 Conectado";
+                        espStatus.classList.add('connected');
+                    } else {
+                        espStatus.textContent = "🤖 ESP32: Esperando...";
+                        espStatus.classList.remove('connected');
+                    }
+                }
 
                 if (data.type === 'new_prediction') {
                     liveImage.src = data.image;
@@ -265,7 +284,7 @@
             };
 
             socket.onclose = function (event) {
-                wsStatus.textContent = "🔴 Desconectado (Reintentando...)";
+                wsStatus.textContent = "🔴 GUI Desconectada (Reintentando...)";
                 wsStatus.classList.remove('connected');
                 setTimeout(connectWebSocket, 3000);
             };

@@ -8,37 +8,35 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// ================= DATOS WIFI =================
-const char *ssid = "TU_WIFI";
-const char *password = "TU_PASSWORD";
+// ==================== TUS DATOS ====================
+const char *ssid = "Pan de plátano";
+const char *password = "12345678";
 
-// ================= CONFIGURACIÓN SERVIDOR =================
+// TU URL DE NGROK (Sin https://)
 const char *host = "usually-stable-lacewing.ngrok-free.app";
 const int httpsPort = 443;
+
+// Endpoints
 const char *api_predict = "/predict";
 const char *api_message = "/esp32/message";
+const char *api_handshake = "/handshake";
 
-// ================= HARDWARE FREENOVE S3 WROOM (CORREGIDO) =================
-// PINES PANTALLA OLED (Mantén tu cableado en 1 y 2)
+// ==================== HARDWARE ====================
 const int SDA_PIN = 1;
 const int SCL_PIN = 2;
+const int BUTTON_PIN = 21;
 
-// Botón BOOT (GPIO 0)
-const int BUTTON_PIN = 0;
-
-// Configuración OLED (SSD1306)
+// OLED
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// --- PINES DE CÁMARA OFICIALES FREENOVE ESP32-S3 WROOM ---
-// (Estos son los correctos para la placa Freenove negra/azul estándar)
+// PINES CAMARA FREENOVE S3 (OPI)
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 15
 #define SIOD_GPIO_NUM 4
 #define SIOC_GPIO_NUM 5
-
 #define Y9_GPIO_NUM 16
 #define Y8_GPIO_NUM 17
 #define Y7_GPIO_NUM 18
@@ -47,19 +45,17 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define Y4_GPIO_NUM 8
 #define Y3_GPIO_NUM 9
 #define Y2_GPIO_NUM 11
-
 #define VSYNC_GPIO_NUM 6
 #define HREF_GPIO_NUM 7
 #define PCLK_GPIO_NUM 13
 
+// GLOBALES
 WiFiClientSecure client;
 unsigned long lastCheckTime = 0;
 const long checkInterval = 2000;
 bool isSystemStarted = false;
 
-// -----------------------------------------------------------------
-// ANIMACIONES
-// -----------------------------------------------------------------
+// ==================== HERRAMIENTAS VISUALES ====================
 void showText(String title, String subtitle)
 {
     display.clearDisplay();
@@ -67,7 +63,6 @@ void showText(String title, String subtitle)
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
     display.println(title);
-
     display.setTextSize(2);
     display.setCursor(0, 20);
     if (subtitle.length() > 10)
@@ -76,98 +71,179 @@ void showText(String title, String subtitle)
     display.display();
 }
 
-void playAIAnimation(int duration_ms)
+void playTransition(int duration_ms)
 {
-    long startTime = millis();
-    int numBars = 8;
-    int barWidth = 10;
-    int spacing = 4;
-    int startX = (SCREEN_WIDTH - (numBars * (barWidth + spacing))) / 2;
-
-    while (millis() - startTime < duration_ms)
+    long start = millis();
+    while (millis() - start < duration_ms)
     {
         display.clearDisplay();
         display.setTextSize(1);
-        display.setCursor(30, 0);
-        display.print("PROCESANDO...");
-
-        for (int i = 0; i < numBars; i++)
+        display.setCursor(35, 0);
+        display.print("CARGANDO...");
+        for (int i = 0; i < 8; i++)
         {
-            int height = random(5, 40);
-            int x = startX + i * (barWidth + spacing);
-            int y = SCREEN_HEIGHT - height;
-            display.fillRect(x, y, barWidth, height, WHITE);
-            display.fillRect(x, y - 4, barWidth, 2, WHITE);
+            int h = random(5, 35);
+            display.fillRect(16 + (i * 12), 64 - h, 8, h, WHITE);
         }
         display.display();
         delay(50);
     }
 }
 
-// -----------------------------------------------------------------
-// POLLING MENSAJES
-// -----------------------------------------------------------------
+void playMiniSpectrum(int frames)
+{
+    for (int f = 0; f < frames; f++)
+    {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setCursor(0, 0);
+        display.println("BUSCANDO API");
+        display.setCursor(0, 15);
+        display.println("Conectando...");
+        int startX = 40;
+        for (int i = 0; i < 4; i++)
+        {
+            int h = random(5, 25);
+            int x = startX + (i * 12);
+            int y_base = 63;
+            display.fillRect(x, y_base - h, 8, h, WHITE);
+        }
+        display.display();
+        delay(60);
+    }
+}
+
+// ==================== CONEXIONES ====================
+void connectWiFi()
+{
+    WiFi.begin(ssid, password);
+    int dots = 0;
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        String status = "Espere";
+        for (int i = 0; i < dots; i++)
+            status += ".";
+        showText("WIFI...", status);
+        dots = (dots + 1) % 4;
+        delay(500);
+    }
+    showText("WIFI", "CONECTADO");
+    delay(1000);
+}
+
+void waitForAPI()
+{
+    bool connected = false;
+    while (!connected)
+    {
+        playMiniSpectrum(5);
+
+        // --- CONFIGURACION SSL PESADA (LA SOLUCIÓN) ---
+        client.setInsecure(); // Ignora certificado
+
+        // 🔥 AUMENTAMOS EL BUFFER PARA COMERSE EL CERTIFICADO ENTERO 🔥
+        // RX: 16KB (Exagerado para seguridad), TX: 4KB
+        // El ESP32-S3 tiene RAM de sobra, usémosla.
+        client.setBufferSizes(16384, 4096);
+
+        client.setTimeout(15); // Timeout de socket
+
+        HTTPClient http;
+        http.setConnectTimeout(15000); // 15s conexion
+        http.setTimeout(15000);        // 15s lectura
+
+        String url = String("https://") + host + api_handshake;
+
+        if (http.begin(client, url))
+        {
+            http.addHeader("ngrok-skip-browser-warning", "true");
+
+            int httpCode = http.GET();
+
+            if (httpCode == 200)
+            {
+                connected = true;
+                showText("API", "ONLINE");
+                delay(1000);
+                playTransition(1000);
+            }
+            else
+            {
+                showText("ERROR API", String(httpCode));
+                Serial.println(http.getString()); // Debug en monitor
+                delay(2000);
+            }
+            http.end();
+        }
+        else
+        {
+            showText("FALLO RED", "Reintentar");
+            delay(1500);
+        }
+    }
+}
+
+// ==================== FUNCIONES PRINCIPALES ====================
 void checkMessages()
 {
     if (WiFi.status() != WL_CONNECTED)
         return;
 
-    WiFiClientSecure secureClient;
-    secureClient.setInsecure();
+    // Cliente fresco para polling con buffer aumentado
+    WiFiClientSecure secureMsg;
+    secureMsg.setInsecure();
+    secureMsg.setBufferSizes(4096, 1024); // Buffer decente
 
     HTTPClient http;
+    http.setConnectTimeout(5000);
     String url = String("https://") + host + api_message;
 
-    if (http.begin(secureClient, url))
+    if (http.begin(secureMsg, url))
     {
+        http.addHeader("ngrok-skip-browser-warning", "true");
         int httpCode = http.GET();
+
         if (httpCode > 0)
         {
             String payload = http.getString();
             StaticJsonDocument<512> doc;
-            DeserializationError error = deserializeJson(doc, payload);
-
-            if (!error)
+            if (!deserializeJson(doc, payload) && doc["has_message"])
             {
-                bool hasMessage = doc["has_message"];
-                if (hasMessage)
-                {
-                    String text = doc["text"].as<String>();
-
-                    display.invertDisplay(true);
-                    delay(200);
-                    display.invertDisplay(false);
-
-                    showText("NUEVO MSJ:", text);
-                    delay(4000);
-                    showText("Listo", "Btn -> Foto");
-                }
+                String text = doc["text"].as<String>();
+                display.invertDisplay(true);
+                delay(100);
+                display.invertDisplay(false);
+                showText("MENSAJE", text);
+                delay(4000);
+                showText("SISTEMA", "LISTO");
             }
         }
         http.end();
     }
 }
 
-// -----------------------------------------------------------------
-// CAPTURA Y ENVIO
-// -----------------------------------------------------------------
 void captureAndSend()
 {
     display.fillScreen(WHITE);
     display.display();
-    delay(100);
+    delay(50);
     display.clearDisplay();
+    display.display();
 
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb)
     {
-        showText("Error", "Camara Fail");
+        showText("ERROR", "Camara Fail");
         delay(2000);
         return;
     }
 
+    long startTime = millis();
+
+    // Reconfigurar cliente principal por si acaso
     client.setInsecure();
-    playAIAnimation(1000);
+    client.setBufferSizes(16384, 4096); // Buffer gigante para imagen
+    client.setTimeout(20);
 
     if (client.connect(host, httpsPort))
     {
@@ -178,29 +254,41 @@ void captureAndSend()
 
         client.println("POST " + String(api_predict) + " HTTP/1.1");
         client.println("Host: " + String(host));
+        client.println("ngrok-skip-browser-warning: true");
         client.println("Content-Length: " + String(totalLen));
         client.println("Content-Type: multipart/form-data; boundary=" + boundary);
         client.println("Connection: close");
         client.println();
-
         client.print(head);
         client.write(fb->buf, fb->len);
         client.print(tail);
 
         esp_camera_fb_return(fb);
 
-        long timeout = millis();
         while (client.connected() && !client.available())
         {
-            playAIAnimation(50);
-            if (millis() - timeout > 15000)
+            display.clearDisplay();
+            display.setTextSize(1);
+            display.setCursor(30, 0);
+            display.print("ANALIZANDO");
+            for (int i = 0; i < 8; i++)
             {
-                showText("Error", "Timeout");
+                int h = random(5, 30);
+                int x = 16 + (i * 12);
+                display.fillRect(x, 64 - h, 8, h, WHITE);
+            }
+            display.display();
+            delay(50);
+
+            if (millis() - startTime > 25000)
+            {
+                showText("ERROR", "Timeout");
                 client.stop();
                 return;
             }
         }
 
+        // Leer respuesta
         String response = "";
         bool jsonStarted = false;
         int brackets = 0;
@@ -224,62 +312,49 @@ void captureAndSend()
         client.stop();
 
         StaticJsonDocument<512> doc;
-        DeserializationError error = deserializeJson(doc, response);
-
-        if (!error)
+        if (!deserializeJson(doc, response))
         {
             if (doc.containsKey("oled_text") && doc["oled_text"].as<String>().length() > 0)
             {
-                String autoMsg = doc["oled_text"].as<String>();
-                display.clearDisplay();
-                display.setTextSize(1);
-                display.setCursor(0, 0);
-                display.println("RESULTADO:");
-                display.setTextSize(2);
-                display.setCursor(0, 25);
-                if (autoMsg.length() > 10)
-                    display.setTextSize(1);
-                display.println(autoMsg);
-                display.display();
+                showText("RESULTADO", doc["oled_text"].as<String>());
             }
             else
             {
-                String pred = doc["prediction"].as<String>();
-                float conf = doc["confidence"];
-                showText("Manual:", pred + " " + String(conf, 0) + "%");
+                String p = doc["prediction"];
+                float c = doc["confidence"];
+                showText("MANUAL", p + " " + String(c, 0) + "%");
             }
+            delay(4000);
         }
         else
         {
-            showText("Error JSON", "Formato");
+            showText("ERROR", "JSON Malo");
         }
     }
     else
     {
-        showText("Error Conex", "Ngrok Down?");
+        showText("ERROR RED", "Ngrok Off");
         esp_camera_fb_return(fb);
+        delay(2000);
     }
+    showText("SISTEMA", "LISTO");
 }
 
+// ==================== SETUP ====================
 void setup()
 {
     Serial.begin(115200);
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
-
-    // PINES I2C: 1 y 2
     Wire.begin(SDA_PIN, SCL_PIN);
-
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-    {
         Serial.println(F("Fallo OLED"));
-        for (;;)
-            ;
+    else
+    {
+        display.clearDisplay();
+        display.display();
     }
 
-    display.clearDisplay();
-    display.display();
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    // CONFIG CÁMARA FREENOVE
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -301,39 +376,56 @@ void setup()
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_QVGA;
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
+
+    if (psramFound())
+    {
+        config.frame_size = FRAMESIZE_VGA;
+        config.jpeg_quality = 10;
+        config.fb_count = 2;
+        config.grab_mode = CAMERA_GRAB_LATEST;
+    }
+    else
+    {
+        config.frame_size = FRAMESIZE_QVGA;
+        config.jpeg_quality = 12;
+        config.fb_count = 1;
+    }
 
     if (esp_camera_init(&config) != ESP_OK)
     {
-        showText("Error", "Cam Init Fail");
+        showText("ERROR FATAL", "Fallo Camara");
         while (true)
             ;
     }
 
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setCursor(0, 0);
-    display.println("Conectando WiFi...");
-    display.display();
+    showText("INICIANDO...", "Version Internet");
+    delay(2000);
+    playTransition(1000);
 
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-    }
+    // 1. WIFI
+    connectWiFi();
 
-    display.clearDisplay();
-    display.setTextSize(2);
-    display.setCursor(15, 20);
-    display.println("INICIAR");
-    display.setTextSize(1);
-    display.setCursor(25, 45);
-    display.println("Click ->");
-    display.display();
+    // 2. BOTON
+    showText("WIFI LISTO", "Click Iniciar");
+    while (digitalRead(BUTTON_PIN) == HIGH)
+        delay(10);
+    display.invertDisplay(true);
+    delay(100);
+    display.invertDisplay(false);
+    while (digitalRead(BUTTON_PIN) == LOW)
+        delay(10);
+
+    playTransition(1000);
+
+    // 3. API
+    waitForAPI();
+
+    // 4. LISTO
+    showText("SISTEMA", "LISTO");
+    isSystemStarted = true;
 }
 
+// ==================== LOOP ====================
 void loop()
 {
     if (digitalRead(BUTTON_PIN) == LOW)
@@ -341,29 +433,14 @@ void loop()
         delay(50);
         if (digitalRead(BUTTON_PIN) == LOW)
         {
-            if (!isSystemStarted)
-            {
-                isSystemStarted = true;
-                playAIAnimation(2000);
-                showText("SISTEMA", "LISTO");
-                delay(1000);
-                showText("Listo", "Btn -> Foto");
-            }
-            else
-            {
-                captureAndSend();
-                delay(2000);
-                showText("Listo", "Btn -> Foto");
-            }
+            captureAndSend();
+            while (digitalRead(BUTTON_PIN) == LOW)
+                delay(10);
         }
     }
-
-    if (isSystemStarted)
+    if (millis() - lastCheckTime > checkInterval)
     {
-        if (millis() - lastCheckTime > checkInterval)
-        {
-            checkMessages();
-            lastCheckTime = millis();
-        }
+        checkMessages();
+        lastCheckTime = millis();
     }
 }
