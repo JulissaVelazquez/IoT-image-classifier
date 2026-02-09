@@ -125,11 +125,11 @@ async def get_message():
 def preprocess_image(image_bytes):
     image = Image.open(io.BytesIO(image_bytes))
     
-    # 1. Escala de Grises
+    #  Escala de Grises
     if image.mode != "L":
         image = image.convert("L")
     
-    # 2. Recorte Central
+    #  Recorte Central
     width, height = image.size
     new_dim = min(width, height)
     left = (width - new_dim)/2
@@ -138,10 +138,10 @@ def preprocess_image(image_bytes):
     bottom = (height + new_dim)/2
     image = image.crop((left, top, right, bottom))
     
-    # 3. Redimensionar
+    #  Redimensionar
     image = image.resize((IMG_WIDTH, IMG_HEIGHT))
     
-    # --- GUARDADO DE IMAGEN LOCAL ---
+    #  GUARDADO DE IMAGEN LOCAL 
     
     try:
         image.save("lo_que_ve_la_ia.jpg") 
@@ -150,7 +150,7 @@ def preprocess_image(image_bytes):
         pass
     # ---------------------------
     
-    # 4. Formato
+    #  Formato
     img_array = np.array(image)
     img_array = np.expand_dims(img_array, axis=-1)
     img_array = np.expand_dims(img_array, axis=0)
@@ -166,7 +166,7 @@ def preprocess_image(image_bytes):
 async def predict(file: UploadFile = File(...)):
     if model is None: raise HTTPException(status_code=503, detail="Sin modelo")
     try:
-        # 1. LEER LA FOTO ORIGINAL HD
+        #  LEER LA FOTO ORIGINAL HD
         contents = await file.read()
         
       
@@ -179,15 +179,15 @@ async def predict(file: UploadFile = File(...)):
         # Enviamos la foto ORIGINAL  a la interfaz web ANTES de procesarla
         base64_image_hd = base64.b64encode(contents).decode('utf-8')
         
-        # 2. PROCESAR UNA COPIA PARA LA IA
+        #  PROCESAR UNA COPIA PARA LA IA
         processed_image_for_ai = preprocess_image(contents)
         
-        # 3. PREDICCIÓN
+        #  PREDICCIÓN
         prediction = model.predict(processed_image_for_ai, verbose=0)
         score = float(prediction[0][0])
 
 
-        # --- DIAGNÓSTICO EN TIEMPO REAL ---
+        #  DIAGNÓSTICO EN TIEMPO REAL 
         print(f" SCORE CRUDO: {score:.4f}")
         
         # Ajuste de Umbral 
@@ -208,7 +208,7 @@ async def predict(file: UploadFile = File(...)):
         oled_text = ""
         if AUTO_MODE: oled_text = f"{label} {int(prob)}%"
 
-        # 4. ENVIAR A LA WEB (
+        #  ENVIAR A LA WEB 
         await manager.broadcast({
             "type": "new_prediction",
             "prediction": label,
@@ -225,7 +225,7 @@ async def predict(file: UploadFile = File(...)):
         print(f"Error en predict: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- ARRANQUE ---
+#  ARRANQUE DEL SERVIDOR 
 if __name__ == "__main__":
     print(f"🚀 SERVIDOR INICIANDO EN LOCAL")
     uvicorn.run(app, host="0.0.0.0", port=8000)
