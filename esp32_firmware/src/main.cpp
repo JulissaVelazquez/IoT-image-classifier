@@ -7,11 +7,11 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// ==================== TUS DATOS (HOTSPOT) ====================
+//  DATOS (HOTSPOT) 
 const char *ssid = "S23 FE de Ari";
 const char *password = "deadspace1";
 
-// TU IP LOCAL
+//IP LOCAL
 const char *host = "10.61.132.17";
 const int httpPort = 8000;
 
@@ -20,7 +20,7 @@ const char *api_predict = "/predict";
 const char *api_message = "/esp32/message";
 const char *api_handshake = "/handshake";
 
-// ==================== HARDWARE ====================
+// HARDWARE 
 const int SDA_PIN = 1;
 const int SCL_PIN = 2;
 const int BUTTON_PIN = 21;
@@ -52,7 +52,7 @@ WiFiClient client;
 unsigned long lastCheckTime = 0;
 const long checkInterval = 2000;
 
-// ==================== UI ====================
+// UI
 void showText(String title, String subtitle) {
     display.clearDisplay();
     display.setTextSize(1);
@@ -66,7 +66,7 @@ void showText(String title, String subtitle) {
     display.display();
 }
 
-// ==================== LÓGICA ====================
+//  LOGICA 
 void connectWiFi() {
     WiFi.begin(ssid, password);
     int dots = 0;
@@ -90,10 +90,10 @@ void waitForAPI() {
         HTTPClient http;
         String url = String("http://") + host + ":" + httpPort + api_handshake;
 
-        // --- AGREGAR ESTAS 2 LÍNEAS ---
-        Serial.print("Intentando conectar a: "); 
-        Serial.println(url); // <--- ESTO NOS DIRÁ LA VERDAD
-        // -----------------------------
+        
+        Serial.print("Intentando conectar a: ");  // mensaje intento de conexión esp32-api
+        Serial.println(url); 
+
         
         if (http.begin(client, url)) {
             int httpCode = http.GET();
@@ -206,14 +206,14 @@ void captureAndSend() {
     showText("LISTO", "Presiona Btn");
 }
 
-// ==================== SETUP ====================
+// SETUP 
 void setup() {
-    // 1. Iniciar Serial y espera
+    //  Inicia Serial y espera
     delay(3000);
     Serial.begin(115200);
     Serial.println("--- ARRANQUE ---");
 
-    // 2. Iniciar OLED
+    // Inicia OLED
     Wire.begin(SDA_PIN, SCL_PIN);
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println("Fallo OLED");
@@ -224,7 +224,7 @@ void setup() {
 
     pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-    // 3. Configurar CÁMARA (Modo Ultra Ligero)
+    //  Configurar CAMARA 
     camera_config_t config;
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -246,23 +246,41 @@ void setup() {
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
+
+
+    // configuración específica para limitar uso de RAM
+    // Usar VGA (640x480) si hay RAM, sino CIF (400x296)
+    config.frame_size = FRAMESIZE_VGA; 
     
-    // === CONFIGURACIÓN CRÍTICA PARA MEMORIA INTERNA ===
-    config.frame_size = FRAMESIZE_QQVGA; // 160x120 (Muy pequeño, pero cabe)
-    config.jpeg_quality = 15;            // Calidad media
-    config.fb_count = 1;                 // Solo 1 buffer
-    config.fb_location = CAMERA_FB_IN_DRAM; // Forzar uso de RAM interna
+    //Calidad media-baja para ahorrar RAM
+    // 10 = Mejor calidad (Pesado)
+    // 20 = Calidad media (Ligero)
+    config.jpeg_quality = 20; 
+    
+    config.fb_count = 1; 
+    config.fb_location = CAMERA_FB_IN_DRAM;
 
-    // Inicializar Cámara
+    // Inicializar
     if (esp_camera_init(&config) != ESP_OK) {
-        Serial.println("Fallo Camara - Init Error");
-        showText("ERROR", "CAMARA INIT");
-        return; // Detener si falla la cámara
-    } else {
-        Serial.println("Camara OK");
+        Serial.println("Fallo VGA... Bajando a CIF");
+        
+        // Si VGA falla, se cambia a CIF (400x296)
+        config.frame_size = FRAMESIZE_CIF;
+        config.jpeg_quality = 12;
+        esp_camera_init(&config); // Reintentar con CIF
     }
+    
+    // Verificacion final
+    camera_fb_t *fb = esp_camera_fb_get();
+    if(!fb) {
+        showText("ERROR", "CAMARA RAM");
+        Serial.println("Error: No hay RAM para la cámara");
+        return;
+    }
+    esp_camera_fb_return(fb); // Liberar prueba
+    Serial.println("Camara OK");
 
-    // 4. Conectar
+    //Conectar
     connectWiFi();
     waitForAPI();
     
@@ -274,7 +292,7 @@ void loop() {
         delay(50);
         if (digitalRead(BUTTON_PIN) == LOW) {
             captureAndSend();
-            // Esperar a que suelte el botón
+            // Esperar a que suelte el boton
             while(digitalRead(BUTTON_PIN) == LOW) delay(10);
         }
     }
