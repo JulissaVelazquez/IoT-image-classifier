@@ -5,7 +5,7 @@ Project Description
 The objective is to differentiate between dogs and cats using computer vision, overcoming the hardware limitations of microcontrollers by delegating the heavy processing to a backend server.
 The workflow is as follows:
 Capture: The ESP32-S3 takes a photograph with the OV2640 camera.
-Transmission: The image is sent via Wi-Fi through an HTTP POST request to a REST API.
+Transmission: The image is sent via Wi-Fi through an HTTP POST request to a REST API through a Ngrok tunel.
 Processing: The server (FastAPI) receives the image, pre-processes it, and feeds it into a Convolutional Neural Network (MobileNetV2) trained using Transfer Learning.
 Response: The server returns the prediction and the confidence percentage in JSON format.
 Feedback: The ESP32 receives the response and displays the result ("DOG" or "CAT") on an SSD1306 OLED display.
@@ -22,7 +22,7 @@ AI / ML: TensorFlow & Keras.
 Model: MobileNetV2 (Transfer Learning on the Kaggle Dogs vs Cats dataset).
 Image Processing: OpenCV / Pillow.
 Software (Frontend - Embedded)
-Framework: Arduino (C++).
+Framework: Arduino (C++), Espressif IDE
 IDE: Visual Studio Code + PlatformIO.
 Key Libraries: esp_camera, HTTPClient, Arduino_JSON, Adafruit_SSD1306.
 
